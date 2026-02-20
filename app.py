@@ -3,7 +3,7 @@ import pandas as pd
 import io
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go # Necesario para agregar la línea al gráfico de barras
+import plotly.graph_objects as go 
 import time 
 
 # ==============================================================================
@@ -23,7 +23,16 @@ st.markdown("""
 
 st.markdown("---") 
 
-tab1, tab2, tab_diario, tab3 = st.tabs(["🕵️ Validación de Pesos", "⏱️ FTE MENSUAL", "⏱️ FTE DIARIO", "⚙️ Días Trabajados"])
+# PESTAÑAS
+tab1, tab2, tab_diario, tab_demanda, tab_contingencia, tab_desglose, tab3 = st.tabs([
+    "✅ Validación de Pesos", 
+    "⏱️ Productividad FTE MENSUAL", 
+    "⏱️ Productividad FTE DIARIO", 
+    "📈 Demanda FTE (Caso Estándar)", 
+    "🚨 Demanda FTE (Caso Contingencia)",
+    "📊 Desglose de Tiempos",
+    "🗓️ Días Trabajados"
+])
 
 # ==============================================================================
 # BARRA LATERAL
@@ -247,7 +256,7 @@ with tab2:
                 if "BRENDA OLGUIN QUIROZ" in tabla_chats.index:
                     tabla_chats.loc["BRENDA OLGUIN QUIROZ"] = tabla_dias.loc["BRENDA OLGUIN QUIROZ"] * MIN_CHAT_ESP
 
-                my_bar.progress(85, text="🔄 Cruzando datos y generando KPI...")
+                my_bar.progress(85, text="🔄 Cruzando datos y generating KPI...")
                 def pivotar_tabla(df_wide, nombre_valor):
                     df_wide = df_wide.reset_index()
                     df_wide.columns = [str(c) for c in df_wide.columns]
@@ -277,7 +286,7 @@ with tab2:
                 df_final = df_final.sort_values(by=['Mes_Num', 'Resolutor'])
 
                 df_fte_mes = df_final.groupby(["Mes_Num"])["FTE"].sum().reset_index()
-                df_fte_mes['Capacidad_Minima_Personas'] = np.ceil(df_fte_mes['FTE']).astype(int)
+                df_fte_mes['Personas Efectivas'] = np.ceil(df_fte_mes['FTE']).astype(int)
                 
                 df_final.insert(1, 'Año', ANIO_SELECCIONADO_M)
                 df_fte_mes.insert(0, 'Año', ANIO_SELECCIONADO_M)
@@ -312,7 +321,7 @@ with tab2:
             if seleccion == "Todos":
                 df_grafico = df_fte_mes.melt(
                     id_vars=['Mes_Num', 'Año'], 
-                    value_vars=['FTE', 'Capacidad_Minima_Personas'],
+                    value_vars=['FTE', 'Personas Efectivas'],
                     var_name='Indicador', 
                     value_name='Valor'
                 )
@@ -322,29 +331,22 @@ with tab2:
                     df_grafico, x='Mes_Num', y='Valor', color='Indicador',
                     barmode='group', title=f'FTE Mensual {anio_actual} vs Capacidad Mínima',
                     text_auto='.2f',
-                    color_discrete_map={'FTE': '#1f77b4', 'Capacidad_Minima_Personas': '#ff7f0e'}
+                    color_discrete_map={'FTE': '#1f77b4', 'Personas Efectivas': '#ff7f0e'}
                 )
                 
-                # --- NUEVO: LÍNEA DE CAPACIDAD REAL (Igual que Pestaña 4) ---
-                # Calculamos la capacidad real basada en días trabajados
-                # df_final ya tiene los días trabajados por persona por mes
-                df_capacidad_linea = df_final[df_final['Dias_Trabajados'] > 0].groupby('Mes_Num').agg(
-                    Total_Dias=('Dias_Trabajados', 'sum'),
-                    Max_Dias=('Dias_Trabajados', 'max')
-                ).reset_index()
+                # Línea de capacidad real
+                df_capacidad_linea = df_final[df_final['Dias_Trabajados'] > 0].groupby('Mes_Num')['Resolutor'].nunique().reset_index()
+                df_capacidad_linea.rename(columns={'Resolutor': 'Capacidad_Real'}, inplace=True)
                 
                 if not df_capacidad_linea.empty:
-                    df_capacidad_linea['Capacidad_Real'] = df_capacidad_linea['Total_Dias'] / df_capacidad_linea['Max_Dias']
                     df_capacidad_linea['Mes_Num'] = df_capacidad_linea['Mes_Num'].astype(str)
-                    
                     fig.add_scatter(
                         x=df_capacidad_linea['Mes_Num'],
                         y=df_capacidad_linea['Capacidad_Real'],
                         mode='lines+markers',
-                        name='Capacidad Real (Personas Disponibles)',
+                        name='Capacidad Real (Personas Activas)',
                         line=dict(color='#00CC96', width=3, dash='dot')
                     )
-                # ------------------------------------------------------------
 
                 fig.update_layout(xaxis_title="Mes", yaxis_title="Valor FTE / Personas")
                 st.plotly_chart(fig, use_container_width=True)
@@ -436,26 +438,20 @@ with tab_diario:
                 df_s.rename(columns={col_res: 'Resolutor'}, inplace=True)
                 df_s['Resolutor'] = df_s['Resolutor'].astype(str).str.upper().str.strip()
 
-                # --- FILTRO DE PERSONAS PERMITIDAS (COMO EN TAB 1) ---
                 empleados_permitidos_d = [
                     "JESSICA ACUNA VELASQUEZ", "ALEJANDRA MATUS DURAN", "DIANA CARRASCO HERRERA",
                     "CLEMENTINA GALAZ MATTA", "BRENDA OLGUIN QUIROZ", 
                     "STEPHANIE CIFUENTES LUENGO", "KARINNA ALVAREZ MORALES"
                 ]
                 df_s = df_s[df_s['Resolutor'].isin(empleados_permitidos_d)].copy()
-                # -----------------------------------------------------------
 
-                df_s['Tipo Limpio'] = df_s['Tipo de Pedido'].apply(limpiar_texto)
-                df_s['Tipo Limpio'] = df_s['Tipo Limpio'].replace(correcciones_manuales)
-                
+                df_s['Tipo Limpio'] = df_s['Tipo de Pedido'].apply(limpiar_texto).replace(correcciones_manuales)
                 df_p['TIPO DE PEDIDO'] = df_p['TIPO DE PEDIDO'].apply(limpiar_texto)
                 scores_dict = df_p.set_index('TIPO DE PEDIDO')['Score'].to_dict()
                 
-                df_s['Score_Unitario'] = df_s['Tipo Limpio'].map(scores_dict)
-                df_s['Score_Unitario'] = df_s['Score_Unitario'].fillna(0) + 2.5 
+                df_s['Score_Unitario'] = df_s['Tipo Limpio'].map(scores_dict).fillna(0) + 2.5 
 
                 bar_d.progress(50, text="Calculando carga diaria...")
-                # Agrupación por resolutor/día
                 df_diario = df_s.groupby(['Resolutor', 'Fecha'])['Score_Unitario'].sum().reset_index()
 
                 REU_SEMANAL_TOTAL = (20 * 3) + 50 + 50 
@@ -463,18 +459,12 @@ with tab_diario:
                 MIN_CHAT_STD = 47
                 MIN_CHAT_ESP = 90
 
-                # LÓGICA CORE: Calcular tanto el FTE individual como los MINUTOS DE CARGA (Numerador)
                 def calc_datos_fila(row):
-                    # 1. Numerador (Carga en minutos)
                     min_chat = MIN_CHAT_ESP if row['Resolutor'] == "BRENDA OLGUIN QUIROZ" else MIN_CHAT_STD
                     carga_minutos = row['Score_Unitario'] + MINUTOS_REU_DIARIA + min_chat
-                    
-                    # 2. Denominador Individual (Capacidad Persona)
                     horas_p = HORA_DIARIA_D - 1 if row['Resolutor'] == "STEPHANIE CIFUENTES LUENGO" else HORA_DIARIA_D
                     capacidad_minutos_ind = horas_p * 60 * OLE_USADO_D
-                    
                     fte_ind = carga_minutos / capacidad_minutos_ind if capacidad_minutos_ind > 0 else 0
-                    
                     return pd.Series([carga_minutos, fte_ind])
 
                 df_diario[['Carga_Minutos', 'FTE_Diario']] = df_diario.apply(calc_datos_fila, axis=1)
@@ -496,7 +486,6 @@ with tab_diario:
         anio_d = st.session_state['anio_diario']
         
         st.success(f"Visualizando Detalle Diario: **{anio_d}**")
-
         tab_d_graf, tab_d_data = st.tabs(["📈 Gráficos de Línea", "📋 Datos Diarios"])
 
         with tab_d_graf:
@@ -505,51 +494,42 @@ with tab_diario:
             seleccion_d = st.selectbox("Filtrar por Resolutor (Diario):", lista_personas_d)
 
             if seleccion_d == "Todos":
-                # --- LÓGICA DE AGREGACIÓN "TODOS" ---
-                df_total_diario = df_diario.groupby('Fecha')[['Carga_Minutos']].sum().reset_index()
-                
+                df_total_diario = df_diario.groupby('Fecha').agg(Carga_Total=('Carga_Minutos', 'sum')).reset_index()
                 capacidad_estandar_minutos = HORA_DIARIA_D * 60 * OLE_USADO_D
                 
                 if capacidad_estandar_minutos > 0:
-                    df_total_diario['FTE_Requerido'] = df_total_diario['Carga_Minutos'] / capacidad_estandar_minutos
+                    df_total_diario['FTE_Logrado'] = df_total_diario['Carga_Total'] / capacidad_estandar_minutos
                 else:
-                    df_total_diario['FTE_Requerido'] = 0
+                    df_total_diario['FTE_Logrado'] = 0
 
-                # Gráfico 1: FTE Decimal
-                fig_d = px.line(
-                    df_total_diario, x='Fecha', y='FTE_Requerido',
-                    title=f"FTE Total Requerido (Carga Total / Capacidad Estándar) - {anio_d}",
-                    markers=True,
-                    labels={'FTE_Requerido': 'FTE Necesario'}
+                df_total_diario['Personas_Necesarias'] = np.ceil(df_total_diario['FTE_Logrado'])
+
+                fig_fte = px.line(
+                    df_total_diario, x='Fecha', y='FTE_Logrado',
+                    title=f" Productividad Diaria (FTE) - {anio_d}",
+                    markers=True, color_discrete_sequence=['#ff7f0e'] 
                 )
-                fig_d.update_layout(yaxis_title="FTE Necesario")
-                st.plotly_chart(fig_d, use_container_width=True)
+                fig_fte.update_layout(yaxis_title="FTE (Exacto)")
+                st.plotly_chart(fig_fte, use_container_width=True)
 
-                # Gráfico 2: Headcount
                 st.markdown("---")
-                st.markdown("#### 👥 Capacidad Real Requerida (Personas Físicas)")
-                df_total_diario['Personas_Requeridas'] = np.ceil(df_total_diario['FTE_Requerido']).astype(int)
-
-                fig_personas = px.line(
-                    df_total_diario,
-                    x='Fecha',
-                    y='Personas_Requeridas',
-                    title=f"Headcount Diario Requerido (Redondeado) - {anio_d}",
-                    markers=True,
-                    labels={'Personas_Requeridas': 'Cantidad de Personas'},
-                    color_discrete_sequence=['#ff7f0e']
-                )
-                fig_personas.update_yaxes(tick0=0, dtick=1)
-                st.plotly_chart(fig_personas, use_container_width=True)
+                st.markdown("Si el FTE es de 4,6 lo aproximamos a 5, ya que no existen 4,6 personas. Por ende, acá podemos ver cuanta gente tuvo que trabajar ese día:")
                 
+                fig_comparativo = px.line(
+                    df_total_diario, x='Fecha', y='Personas_Necesarias', 
+                    title=f"Productividad Diaria Redondeada (FTE) - {anio_d}",
+                    markers=True, color_discrete_sequence=['#d62728']
+                )
+                fig_comparativo.update_layout(yaxis_title="Cantidad de Personas", hovermode="x unified")
+                fig_comparativo.update_yaxes(tick0=0, dtick=1)
+                st.plotly_chart(fig_comparativo, use_container_width=True)
+
             else:
-                # Lógica Individual
                 df_persona_d = df_diario[df_diario['Resolutor'] == seleccion_d].copy()
                 fig_d = px.line(
                     df_persona_d, x='Fecha', y='FTE_Diario',
                     title=f"FTE Diario - {seleccion_d} ({anio_d})",
-                    markers=True,
-                    color_discrete_sequence=['#1f77b4'] 
+                    markers=True, color_discrete_sequence=['#1f77b4'] 
                 )
                 fig_d.add_hline(y=1, line_dash="dash", line_color="red", annotation_text="Límite (1.0)")
                 fig_d.add_hline(y=0.8, line_dash="dash", line_color="green", annotation_text="Meta (0.8)")
@@ -558,14 +538,486 @@ with tab_diario:
 
         with tab_d_data:
             st.dataframe(df_diario.style.format({"FTE_Diario": "{:.2f}", "Carga_Minutos": "{:.0f}"}), use_container_width=True)
-            
             buffer_dia = io.BytesIO()
             with pd.ExcelWriter(buffer_dia) as writer:
                 df_diario.to_excel(writer, sheet_name="FTE_Diario_Detalle", index=False)
             st.download_button("📥 Descargar Excel Diario", data=buffer_dia, file_name=f"FTE_Diario_{anio_d}.xlsx")
 
 # ==============================================================================
-# PESTAÑA 4: DETALLE DE TIEMPOS
+# PESTAÑA 4: DEMANDA FTE (IDEAL)
+# ==============================================================================
+with tab_demanda:
+    st.subheader("🔮 Demanda FTE (Carga Ideal según Días Hábiles)")
+    st.markdown("""
+    Esta simulación calcula cuántas personas se necesitan en un escenario ideal:
+    - **Numerador:** Carga real (Scores) + Carga Administrativa proyectada (Reuniones/Chat x Días Hábiles x Personas).
+    - **Denominador:** Capacidad ideal de una persona trabajando **todos los días hábiles** del mes.
+    """)
+
+    with st.form("form_demanda_ideal"):
+        c_dem1, c_dem2, c_dem3 = st.columns(3)
+        with c_dem1:
+            OLE_DEMANDA = st.number_input("Factor OLE", value=0.66, step=0.01, key="ole_dem")
+        with c_dem2:
+            HORA_DEMANDA = st.number_input("Horas Diarias", value=7.95, step=0.01, key="hor_dem")
+        with c_dem3:
+            ANIO_DEMANDA = st.number_input("📅 Año a Analizar", value=2025, step=1, key="anio_dem")
+            
+        bt_demanda = st.form_submit_button("Calculadora de Demanda Ideal", type="primary")
+
+    if bt_demanda:
+        if not (file_solicitudes and file_pesos):
+             st.warning("⚠️ Carga Solicitudes y Pesos primero.")
+        else:
+            try:
+                df_s = pd.read_excel(file_solicitudes)
+                df_p = pd.read_excel(file_pesos)
+                
+                col_fecha = None
+                for c in df_s.columns:
+                    if 'fin real' in c.lower():
+                        col_fecha = c
+                        break
+                if not col_fecha:
+                      for c in df_s.columns:
+                        if 'fecha de creación' in c.lower():
+                            col_fecha = c
+                            break
+                
+                df_s[col_fecha] = pd.to_datetime(df_s[col_fecha], errors='coerce')
+                df_s['Mes_Num'] = df_s[col_fecha].dt.month
+                df_s['Año'] = df_s[col_fecha].dt.year
+                df_s = df_s[df_s['Año'] == ANIO_DEMANDA].copy()
+                
+                col_res = [c for c in df_s.columns if 'Resolutor' in c or 'Técnico' in c][0]
+                df_s.rename(columns={col_res: 'Resolutor'}, inplace=True)
+                df_s['Resolutor'] = df_s['Resolutor'].astype(str).str.upper().str.strip()
+                
+                empleados_permitidos_dem = [
+                    "JESSICA ACUNA VELASQUEZ", "ALEJANDRA MATUS DURAN", "DIANA CARRASCO HERRERA",
+                    "CLEMENTINA GALAZ MATTA", "BRENDA OLGUIN QUIROZ", 
+                    "STEPHANIE CIFUENTES LUENGO", "KARINNA ALVAREZ MORALES"
+                ]
+                df_s = df_s[df_s['Resolutor'].isin(empleados_permitidos_dem)]
+
+                df_s['Tipo Limpio'] = df_s['Tipo de Pedido'].apply(limpiar_texto).replace(correcciones_manuales)
+                df_p['TIPO DE PEDIDO'] = df_p['TIPO DE PEDIDO'].apply(limpiar_texto)
+                scores_dict = df_p.set_index('TIPO DE PEDIDO')['Score'].to_dict()
+                df_s['Score_Unitario'] = df_s['Tipo Limpio'].map(scores_dict).fillna(0) + 2.5
+                
+                df_base = df_s.groupby(['Resolutor', 'Mes_Num'])['Score_Unitario'].sum().reset_index()
+                resumen_demanda = []
+
+                REU_SEMANAL_TOTAL = (20 * 3) + 50 + 50 
+                MINUTOS_REU_DIARIA = REU_SEMANAL_TOTAL / 5 
+                MIN_CHAT_STD = 47
+                MIN_CHAT_ESP = 90
+                
+                for index, row in df_base.iterrows():
+                    resolutor = row['Resolutor']
+                    mes = int(row['Mes_Num'])
+                    score_tickets = row['Score_Unitario']
+                    
+                    fecha_inicio = f"{int(ANIO_DEMANDA)}-{mes:02d}-01"
+                    inicio = pd.Timestamp(fecha_inicio)
+                    fin = inicio + pd.offsets.MonthEnd(0)
+                    dias_habiles = np.busday_count(inicio.date(), fin.date() + pd.Timedelta(days=1))
+                    
+                    min_chat = MIN_CHAT_ESP if resolutor == "BRENDA OLGUIN QUIROZ" else MIN_CHAT_STD
+                    carga_admin_total = (MINUTOS_REU_DIARIA + min_chat) * dias_habiles
+                    numerador_total = score_tickets + carga_admin_total
+                    
+                    horas_p = HORA_DEMANDA - 1 if resolutor == "STEPHANIE CIFUENTES LUENGO" else HORA_DEMANDA
+                    capacidad_ideal = horas_p * 60 * dias_habiles * OLE_DEMANDA
+                    fte_ideal = numerador_total / capacidad_ideal if capacidad_ideal > 0 else 0
+                    
+                    resumen_demanda.append({
+                        'Mes_Num': mes,
+                        'Resolutor': resolutor,
+                        'Dias_Habiles': dias_habiles,
+                        'Score_Tickets': score_tickets,
+                        'Carga_Admin': carga_admin_total,
+                        'Carga_Total': numerador_total,
+                        'Capacidad_Individual': capacidad_ideal,
+                        'FTE_Ideal': fte_ideal
+                    })
+                
+                df_demanda = pd.DataFrame(resumen_demanda)
+
+                if not df_demanda.empty:
+                    df_demanda_mes = df_demanda.groupby('Mes_Num').agg(
+                        FTE_Ideal_Total=('FTE_Ideal', 'sum'),
+                        Dias_Habiles_Prom=('Dias_Habiles', 'max') 
+                    ).reset_index()
+                    
+                    FACTOR_SHRINKAGE = 0.80
+                    df_demanda_mes['Headcount_Requerido'] = df_demanda_mes['FTE_Ideal_Total'] / FACTOR_SHRINKAGE
+                    df_demanda_mes['Personas_A_Contratar'] = np.ceil(df_demanda_mes['Headcount_Requerido'])
+                    
+                    st.markdown("#### Resultado: Plantilla Necesaria ")
+                    fig_dem = px.bar(
+                        df_demanda_mes, x='Mes_Num', y='Headcount_Requerido',
+                        title=f"Dimensionamiento FTE {int(ANIO_DEMANDA)} (Plantilla Necesaria)",
+                        text_auto='.2f', labels={'Headcount_Requerido': 'Plantilla Exacta (Decimales)'},
+                        color_discrete_sequence=['#ff7f0e'] 
+                    )
+                    
+                    fig_dem.add_trace(go.Bar(
+                        x=df_demanda_mes['Mes_Num'], y=df_demanda_mes['Personas_A_Contratar'],
+                        name='Contratación Sugerida (Redondeo)', text=df_demanda_mes['Personas_A_Contratar'],
+                        textposition='auto', marker_color='rgba(255, 0, 0, 0.3)',
+                        marker_line_width=2, marker_line_color='red'
+                    ))
+
+                    fig_dem.update_layout(barmode='overlay')
+                    st.plotly_chart(fig_dem, use_container_width=True)
+                    
+                    st.write("### Detalle de Cálculo")
+                    st.info("Nota: Se muestra únicamente la **Plantilla Necesaria** (que incluye el Shrinkage de 17%).")
+                    st.dataframe(df_demanda_mes)
+                    
+                    with st.expander("Ver desglose por Resolutor (Ideal)"):
+                        st.dataframe(df_demanda)
+
+                else:
+                    st.warning("No se generaron datos. Revisa el año seleccionado.")
+
+            except Exception as e:
+                st.error(f"Error en Demanda FTE: {e}")
+
+# ==============================================================================
+# PESTAÑA 5: DEMANDA FTE (CONTINGENCIA)
+# ==============================================================================
+with tab_contingencia:
+    st.subheader("🚨 Demanda FTE (Caso Contingencia)")
+    st.markdown("""
+    **Escenario de Emergencia/Contingencia:**
+    - Se eliminan tiempos de reuniones y chats.
+    - Se asume que el personal está **100% dedicado a Procesos (Full Proceso)**.
+    """)
+
+    with st.form("form_demanda_contingencia"):
+        c_cont1, c_cont2, c_cont3 = st.columns(3)
+        with c_cont1:
+            OLE_CONT = st.number_input("Factor OLE", value=0.66, step=0.01, key="ole_cont")
+        with c_cont2:
+            HORA_CONT = st.number_input("Horas Diarias", value=7.95, step=0.01, key="hor_cont")
+        with c_cont3:
+            ANIO_CONT = st.number_input("📅 Año a Analizar", value=2025, step=1, key="anio_cont")
+            
+        bt_contingencia = st.form_submit_button("Calculadora de Contingencia", type="primary")
+
+    if bt_contingencia:
+        if not (file_solicitudes and file_pesos):
+             st.warning("⚠️ Carga Solicitudes y Pesos primero.")
+        else:
+            try:
+                df_s = pd.read_excel(file_solicitudes)
+                df_p = pd.read_excel(file_pesos)
+                
+                col_fecha = None
+                for c in df_s.columns:
+                    if 'fin real' in c.lower():
+                        col_fecha = c
+                        break
+                if not col_fecha:
+                      for c in df_s.columns:
+                        if 'fecha de creación' in c.lower():
+                            col_fecha = c
+                            break
+                
+                df_s[col_fecha] = pd.to_datetime(df_s[col_fecha], errors='coerce')
+                df_s['Mes_Num'] = df_s[col_fecha].dt.month
+                df_s['Año'] = df_s[col_fecha].dt.year
+                df_s = df_s[df_s['Año'] == ANIO_CONT].copy()
+                
+                col_res = [c for c in df_s.columns if 'Resolutor' in c or 'Técnico' in c][0]
+                df_s.rename(columns={col_res: 'Resolutor'}, inplace=True)
+                df_s['Resolutor'] = df_s['Resolutor'].astype(str).str.upper().str.strip()
+                
+                empleados_permitidos_cont = [
+                    "JESSICA ACUNA VELASQUEZ", "ALEJANDRA MATUS DURAN", "DIANA CARRASCO HERRERA",
+                    "CLEMENTINA GALAZ MATTA", "BRENDA OLGUIN QUIROZ", 
+                    "STEPHANIE CIFUENTES LUENGO", "KARINNA ALVAREZ MORALES"
+                ]
+                df_s = df_s[df_s['Resolutor'].isin(empleados_permitidos_cont)]
+
+                df_s['Tipo Limpio'] = df_s['Tipo de Pedido'].apply(limpiar_texto).replace(correcciones_manuales)
+                df_p['TIPO DE PEDIDO'] = df_p['TIPO DE PEDIDO'].apply(limpiar_texto)
+                scores_dict = df_p.set_index('TIPO DE PEDIDO')['Score'].to_dict()
+                df_s['Score_Unitario'] = df_s['Tipo Limpio'].map(scores_dict).fillna(0) + 2.5
+                
+                df_base = df_s.groupby(['Resolutor', 'Mes_Num'])['Score_Unitario'].sum().reset_index()
+                resumen_contingencia = []
+
+                for index, row in df_base.iterrows():
+                    resolutor = row['Resolutor']
+                    mes = int(row['Mes_Num'])
+                    score_tickets = row['Score_Unitario']
+                    
+                    fecha_inicio = f"{int(ANIO_CONT)}-{mes:02d}-01"
+                    inicio = pd.Timestamp(fecha_inicio)
+                    fin = inicio + pd.offsets.MonthEnd(0)
+                    dias_habiles = np.busday_count(inicio.date(), fin.date() + pd.Timedelta(days=1))
+                    
+                    carga_admin_total = 0 
+                    numerador_total = score_tickets + carga_admin_total
+                    
+                    horas_p = HORA_CONT - 1 if resolutor == "STEPHANIE CIFUENTES LUENGO" else HORA_CONT
+                    capacidad_ideal = horas_p * 60 * dias_habiles * OLE_CONT
+                    fte_ideal = numerador_total / capacidad_ideal if capacidad_ideal > 0 else 0
+                    
+                    resumen_contingencia.append({
+                        'Mes_Num': mes,
+                        'Resolutor': resolutor,
+                        'Dias_Habiles': dias_habiles,
+                        'Score_Tickets': score_tickets,
+                        'Carga_Admin': carga_admin_total, 
+                        'Carga_Total': numerador_total,
+                        'Capacidad_Individual': capacidad_ideal,
+                        'FTE_Ideal': fte_ideal
+                    })
+                
+                df_contingencia = pd.DataFrame(resumen_contingencia)
+
+                if not df_contingencia.empty:
+                    df_cont_mes = df_contingencia.groupby('Mes_Num').agg(
+                        FTE_Ideal_Total=('FTE_Ideal', 'sum'),
+                        Dias_Habiles_Prom=('Dias_Habiles', 'max') 
+                    ).reset_index()
+                    
+                    FACTOR_SHRINKAGE = 0.85 
+                    df_cont_mes['Headcount_Requerido'] = df_cont_mes['FTE_Ideal_Total'] / FACTOR_SHRINKAGE
+                    df_cont_mes['Personas_A_Contratar'] = np.ceil(df_cont_mes['Headcount_Requerido'])
+                    
+                    st.markdown("#### Resultado Contingencia: Plantilla Necesaria (Sin Admin Load)")
+                    fig_cont = px.bar(
+                        df_cont_mes, x='Mes_Num', y='Headcount_Requerido',
+                        title=f"Dimensionamiento CONTINGENCIA {int(ANIO_CONT)} (Solo Procesos)",
+                        text_auto='.2f', labels={'Headcount_Requerido': 'Plantilla Exacta (Decimales)'},
+                        color_discrete_sequence=['#ff7f0e']
+                    )
+                    
+                    fig_cont.add_trace(go.Bar(
+                        x=df_cont_mes['Mes_Num'], y=df_cont_mes['Personas_A_Contratar'],
+                        name='Contratación Sugerida (Redondeo)', text=df_cont_mes['Personas_A_Contratar'],
+                        textposition='auto', marker_color='rgba(214, 39, 40, 0.3)', 
+                        marker_line_width=2, marker_line_color='red'
+                    ))
+
+                    fig_cont.update_layout(barmode='overlay')
+                    st.plotly_chart(fig_cont, use_container_width=True)
+                    
+                    st.write("### Detalle de Cálculo (Contingencia)")
+                    st.dataframe(df_cont_mes)
+                    
+                    with st.expander("Ver desglose por Resolutor (Contingencia)"):
+                        st.dataframe(df_contingencia)
+
+                else:
+                    st.warning("No se generaron datos. Revisa el año seleccionado.")
+
+            except Exception as e:
+                st.error(f"Error en Contingencia FTE: {e}")
+
+
+# ==============================================================================
+# PESTAÑA 6: DESGLOSE DE TIEMPOS OLE
+# ==============================================================================
+with tab_desglose:
+    st.subheader("📊 Desglose de Tiempos (Operación, Reuniones y OLE)")
+    st.markdown("""
+    Esta pestaña desglosa la distribución del tiempo total utilizado por el equipo, 
+    agrupando la operación y separando el OLE en sus correspondientes categorías.
+    """)
+
+    # ----------------------------------------------------------------------
+    # A. PANEL DE CONFIGURACIÓN DINÁMICA DEL OLE
+    # ----------------------------------------------------------------------
+    with st.expander("⚙️ Configurar Minutos Diarios del OLE", expanded=False):
+        with st.form("form_config_ole"):
+            st.markdown("Ajusta los tiempos de pérdida diarios para ver el impacto visual y calcular tu OLE Teórico:")
+            c_ole1, c_ole2, c_ole3, c_ole4 = st.columns(4)
+            with c_ole1:
+                val_horas = st.number_input("Horas Diarias", value=7.95, step=0.01)
+                val_almuerzo = st.number_input("Cat A: Alimentación", value=40.0, step=1.0)
+            with c_ole2:
+                val_fisiologicas = st.number_input("Cat A: Necesidades Fisiológicas (Baño)", value=24.0, step=1.0)
+                val_fatiga = st.number_input("Cat A: Fatiga Básica y Variable", value=28.0, step=1.0)
+            with c_ole3:
+                val_fallas = st.number_input("Cat B: Fallas de Sist.", value=10.0, step=1.0)
+            with c_ole4:
+                val_reu_no_est = st.number_input("Cat C: Reu. No Est.", value=30.4, step=0.1)
+                val_micro = st.number_input("Cat C: MicroTareas", value=30.0, step=1.0)
+            
+            btn_recalcular = st.form_submit_button("🔄 Calcular y Actualizar Gráficos")
+            
+        # Cálculo del OLE directamente fuera del if para que siempre se muestre
+        minutos_totales = val_horas * 60
+        minutos_perdidos = val_fisiologicas + val_fatiga + val_almuerzo + val_fallas + val_reu_no_est + val_micro
+        ole_calc = (minutos_totales - minutos_perdidos) / minutos_totales if minutos_totales > 0 else 0
+        
+        st.info(f"📊 **OLE Teórico Calculado:** **{ole_calc:.1%}** (Se restan {minutos_perdidos:.1f} min de un total de {minutos_totales:.0f} min diarios)")
+    
+    if st.session_state.get('calculo_realizado'):
+        df_desglose = st.session_state['df_fte_final'].copy()
+        anio_desglose = st.session_state.get('anio_calculado', '---')
+        
+        # 1. Filtro por Mes
+        meses_disponibles = ["Todos"] + sorted(list(df_desglose['Mes_Num'].unique()))
+        mes_seleccionado = st.selectbox("📅 Filtrar por Mes:", meses_disponibles)
+        
+        if mes_seleccionado != "Todos":
+            df_desglose = df_desglose[df_desglose['Mes_Num'] == mes_seleccionado].copy()
+            st.success(f"Visualizando desglose del año: **{anio_desglose}** - Mes: **{mes_seleccionado}**")
+        else:
+            st.success(f"Visualizando desglose de todo el año: **{anio_desglose}**")
+
+        # 2. Agrupaciones solicitadas: Operación sumando con tickets y sin tickets
+        df_desglose['Operación (Tickets + Sin Tickets)'] = df_desglose['Score_Unitario'] + df_desglose['Minutos_Chat']
+        df_desglose['Reuniones Estandarizadas (Fijas)'] = df_desglose['Minutos_Reunion']
+        
+        # 3. Desglose del OLE dinámico basado en las variables del expander
+        df_desglose['Cat. A: Necesidades Fisiológicas y Fatiga'] = df_desglose['Dias_Trabajados'] * (val_fisiologicas + val_fatiga)
+        df_desglose['Cat. A: Alimentación'] = df_desglose['Dias_Trabajados'] * val_almuerzo
+        
+        df_desglose['Cat. B: Fallas de Sistema'] = df_desglose['Dias_Trabajados'] * val_fallas
+        df_desglose['Cat. C: Reuniones No Estandarizadas'] = df_desglose['Dias_Trabajados'] * val_reu_no_est
+        df_desglose['Cat. C: MicroTareas (Gestión/Cursos/Soporte/Setup)'] = df_desglose['Dias_Trabajados'] * val_micro
+
+        # --- LÓGICA DE CAPACIDAD LIBRE ---
+        # Calculamos el total de minutos teóricos por persona según sus días trabajados y las horas configuradas
+        def calc_capacidad_libre(row):
+            horas_p = val_horas - 1 if row['Resolutor'] == "STEPHANIE CIFUENTES LUENGO" else val_horas
+            minutos_teoricos_totales = horas_p * 60 * row['Dias_Trabajados']
+            
+            # Sumamos todo lo que hemos "consumido"
+            minutos_consumidos = (
+                row['Operación (Tickets + Sin Tickets)'] +
+                row['Reuniones Estandarizadas (Fijas)'] +
+                row['Cat. A: Necesidades Fisiológicas y Fatiga'] +
+                row['Cat. A: Alimentación'] +
+                row['Cat. B: Fallas de Sistema'] +
+                row['Cat. C: Reuniones No Estandarizadas'] +
+                row['Cat. C: MicroTareas (Gestión/Cursos/Soporte/Setup)']
+            )
+            
+            libre = minutos_teoricos_totales - minutos_consumidos
+            return libre if libre > 0 else 0 # Si da negativo, significa que trabajaron más de su horario (horas extras)
+        
+        df_desglose['Capacidad Libre (Ocio / Proyectos)'] = df_desglose.apply(calc_capacidad_libre, axis=1)
+        # ----------------------------------
+
+        cols_base = [
+            'Operación (Tickets + Sin Tickets)', 
+            'Reuniones Estandarizadas (Fijas)',
+            'Cat. C: Reuniones No Estandarizadas',
+            'Cat. B: Fallas de Sistema',
+            'Cat. C: MicroTareas (Gestión/Cursos/Soporte/Setup)',
+            'Capacidad Libre (Ocio / Proyectos)'
+        ]
+        
+        cols_pausas = [
+            'Cat. A: Necesidades Fisiológicas y Fatiga',
+            'Cat. A: Alimentación'
+        ]
+
+        # 4. Toggle para controlar la visualización
+        st.markdown("---")
+        mostrar_pausas = st.toggle("👁️ Mostrar tiempos de Alimentación y Necesidades Fisiológicas en el análisis", value=False)
+        st.caption("Por defecto estos tiempos se ocultan para analizar estrictamente la carga y fricción operativa. Actívalo para ver la jornada en su totalidad.")
+        
+        if mostrar_pausas:
+            cols_analisis = cols_base + cols_pausas
+        else:
+            cols_analisis = cols_base
+
+        # ----------------------------------------------------------------------
+        # A. Análisis General (Total Equipo)
+        # ----------------------------------------------------------------------
+        df_total = df_desglose[cols_analisis].sum().reset_index()
+        df_total.columns = ['Categoría', 'Minutos Totales']
+        df_total['Horas Totales'] = df_total['Minutos Totales'] / 60
+        df_total['%'] = (df_total['Minutos Totales'] / df_total['Minutos Totales'].sum()) * 100
+
+        col_g1, col_g2 = st.columns([1.5, 1])
+        with col_g1:
+            st.markdown("#### ¿En qué se va el tiempo del equipo?")
+            
+            # Asignamos un color específico para 'Capacidad Libre'
+            color_map = {
+                'Operación (Tickets + Sin Tickets)': '#636EFA',
+                'Reuniones Estandarizadas (Fijas)': '#EF553B',
+                'Cat. C: Reuniones No Estandarizadas': '#00CC96',
+                'Cat. B: Fallas de Sistema': '#AB63FA',
+                'Cat. C: MicroTareas (Gestión/Cursos/Soporte/Setup)': '#FFA15A',
+                'Cat. A: Necesidades Fisiológicas y Fatiga': '#19D3F3',
+                'Cat. A: Alimentación': '#FF6692',
+                'Capacidad Libre (Ocio / Proyectos)': "#D3D3D3" # Color distintivo claro
+            }
+            
+            fig_pie = px.pie(
+                df_total, 
+                names='Categoría', 
+                values='Minutos Totales',
+                hole=0.3,
+                color='Categoría',
+                color_discrete_map=color_map
+            )
+            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+            st.plotly_chart(fig_pie, use_container_width=True)
+            
+        with col_g2:
+            st.markdown("#### Resumen en Horas")
+            st.dataframe(df_total[['Categoría', 'Horas Totales', '%']].style.format({
+                'Horas Totales': "{:,.0f} hrs",
+                '%': "{:.1f}%"
+            }), use_container_width=True)
+            
+            # Tarjeta de resumen de Capacidad Libre
+            if 'Capacidad Libre (Ocio / Proyectos)' in df_total['Categoría'].values:
+                libre_pct = df_total.loc[df_total['Categoría'] == 'Capacidad Libre (Ocio / Proyectos)', '%'].values[0]
+                libre_hrs = df_total.loc[df_total['Categoría'] == 'Capacidad Libre (Ocio / Proyectos)', 'Horas Totales'].values[0]
+                st.info(f"**💡 Capacidad Libre (Ocio / Proyectos):** El equipo tiene un **{libre_pct:.1f}%** ({libre_hrs:,.0f} hrs) de su tiempo disponible o no registrado operativamente.")
+
+        st.markdown("---")
+
+        # ----------------------------------------------------------------------
+        # B. Análisis Detallado por Persona (Resolutor)
+        # ----------------------------------------------------------------------
+        st.markdown("#### Desglose de Tiempos por Resolutor (En Horas)")
+        df_resolutores = df_desglose.groupby('Resolutor')[cols_analisis].sum().reset_index()
+        
+        # Melt para gráfica apilada
+        df_melt = df_resolutores.melt(id_vars='Resolutor', value_vars=cols_analisis, var_name='Categoría', value_name='Minutos')
+        df_melt['Horas'] = df_melt['Minutos'] / 60
+
+        fig_bar = px.bar(
+            df_melt, x='Resolutor', y='Horas', color='Categoría',
+            text_auto='.0f', title="Distribución de Horas por Empleado",
+            color_discrete_map=color_map
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+        # ----------------------------------------------------------------------
+        # C. Tabla y Descarga
+        # ----------------------------------------------------------------------
+        st.markdown("#### Datos Crudos (Base Mensual)")
+        # Mostramos siempre todas las columnas en la tabla y descarga para no perder data
+        columnas_mostrar = ['Mes_Num', 'Resolutor', 'Dias_Trabajados'] + cols_base + cols_pausas
+        st.dataframe(df_desglose[columnas_mostrar].style.format(precision=1), use_container_width=True)
+
+        buffer_ole = io.BytesIO()
+        with pd.ExcelWriter(buffer_ole) as writer:
+            df_desglose[columnas_mostrar].to_excel(writer, index=False, sheet_name="Desglose_Tiempos")
+        st.download_button("📥 Descargar Base Completa del Desglose OLE", data=buffer_ole, file_name=f"Desglose_Tiempos_OLE_{anio_desglose}.xlsx")
+
+    else:
+        st.warning("⚠️ Debes correr primero el cálculo en la pestaña 'Productividad FTE MENSUAL' (Pestaña 2) para generar los datos de tiempo.")
+
+
+# ==============================================================================
+# PESTAÑA 7: DETALLE DE TIEMPOS
 # ==============================================================================
 with tab3:
     st.subheader("⚙️ Días Trabajados (Detalle)")
@@ -611,7 +1063,6 @@ with tab3:
                 st.write("**Días Trabajados:**")
                 st.dataframe(tabla_dias, use_container_width=True)
                 
-                # --- LÓGICA: CAPACIDAD REAL (PERSONAS DISPONIBLES) ---
                 st.markdown("---")
                 st.subheader("👥 Capacidad Real (Personas Disponibles)")
                 st.caption("Cálculo: (Total Días Trabajados del Mes / Días Hábiles del Mes)")
@@ -619,40 +1070,30 @@ with tab3:
                 df_activos = df_equipo[df_equipo['Dias Trabajados'] > 0].copy()
 
                 if not df_activos.empty:
-                    # Agrupamos por MES
                     df_capacidad = df_activos.groupby('Número Mes').agg(
                         Dias_Totales_Trabajados=('Dias Trabajados', 'sum'),
                         Dias_Habiles_Mes=('Dias Trabajados', 'max'),
-                        Personas_Activas=('Resolutor', 'nunique') # Cuenta de personas activas
+                        Personas_Activas=('Resolutor', 'nunique') 
                     ).reset_index()
 
                     df_capacidad['Personas_Reales_Disponibles'] = df_capacidad['Dias_Totales_Trabajados'] / df_capacidad['Dias_Habiles_Mes']
                     df_capacidad['Mes'] = df_capacidad['Número Mes'].astype(str)
                     
-                    # Gráfico Barras + Línea
                     fig_capacidad = px.bar(
-                        df_capacidad,
-                        x='Mes',
-                        y='Personas_Reales_Disponibles',
+                        df_capacidad, x='Mes', y='Personas_Reales_Disponibles',
                         title=f"Capacidad Efectiva del Equipo (FTE Disponible) - {ANIO_DETALLE}",
-                        text_auto='.2f',
-                        labels={'Personas_Reales_Disponibles': 'Personas Completas (FTE)'},
+                        text_auto='.2f', labels={'Personas_Reales_Disponibles': 'Personas Completas (FTE)'},
                         color_discrete_sequence=['#00CC96']
                     )
                     
-                    # Agregar línea de "Personas Activas" (quienes trabajaron al menos 1 día)
                     fig_capacidad.add_scatter(
-                        x=df_capacidad['Mes'], 
-                        y=df_capacidad['Personas_Activas'],
-                        mode='lines+markers',
-                        name='Personas Activas (Headcount > 0 días)',
+                        x=df_capacidad['Mes'], y=df_capacidad['Personas_Activas'],
+                        mode='lines+markers', name='Personas Activas (Headcount > 0 días)',
                         line=dict(color='red', width=2, dash='dot')
                     )
                     
                     st.plotly_chart(fig_capacidad, use_container_width=True)
                     
-                    # Corrección del Error de Formato
-                    # Solo aplicamos formato a las columnas numéricas relevantes
                     format_dict = {
                         'Personas_Reales_Disponibles': '{:.2f}',
                         'Dias_Totales_Trabajados': '{:.0f}',
@@ -665,7 +1106,7 @@ with tab3:
                 
                 st.write("**Cálculo Rápido:**")
                 st.markdown(f"- Minutos Reunión Diarios: **{MINUTOS_REU_DIARIA}**")
-                st.markdown(f"- Minutos Chat Estándar: **47** (Especial Brenda: 90)")
+                st.markdown(f"- Minutos Chats y Correos Estándar: **47** (Especial Brenda: 90)")
             else:
                 st.error("Falta columna 'Nombre Técnico'")
         except Exception as e:
